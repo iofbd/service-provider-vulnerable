@@ -1,0 +1,96 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+  labels:
+    control-plane: controller-manager
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: manager
+        command:
+        - /operator
+        image: quay.io/redhat-appstudio/service-provider-integration-operator:next
+        env: []
+        envFrom:
+          - configMapRef:
+              name: controller-manager-environment-config
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+              - ALL
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 200m
+            memory: 600Mi
+          requests:
+            cpu: 100m
+            memory: 50Mi
+        volumeMounts:
+          - mountPath: /etc/spi/config.yaml
+            name: config-file
+            readOnly: true
+            subPath: config.yaml
+      - name: kube-rbac-proxy
+        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.0
+        args:
+          - "--secure-listen-address=0.0.0.0:8443"
+          - "--upstream=http://127.0.0.1:8080/"
+          - "--logtostderr=true"
+          - "--v=10"
+        ports:
+          - containerPort: 8443
+            protocol: TCP
+            name: https
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+             drop:
+               - ALL
+        resources:
+          limits:
+            cpu: 50m
+            memory: 50Mi
+          requests:
+            cpu: 20m
+            memory: 10Mi
+      serviceAccountName: controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: config-file
+          secret:
+            secretName: shared-configuration-file
+            items:
+              - key: config.yaml
+                path: config.yaml
